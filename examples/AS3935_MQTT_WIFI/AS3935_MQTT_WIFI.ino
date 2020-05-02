@@ -77,6 +77,9 @@ void printInterruptReason(Stream &s, uint8_t value, const char *prefix = nullptr
       String pubString = String(AS3935_NoiseFloor);
       pubString.toCharArray(msg,pubString.length()+1);
       client.publish("as3935/NoiseFloorLevel", msg);
+    } else {
+      AS3935_NoiseFloor = AS3935_MaxNoiseFloor;
+      NF.start(NFReductionDelay, AsyncDelay::MILLIS);
     }
   }
   if (value & AS3935::intDisturberDetected) {
