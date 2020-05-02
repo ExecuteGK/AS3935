@@ -22,6 +22,12 @@
   String PrefSSID, PrefPassword;  // used by preferences storage
 
   String mqtt_server;
+
+  //Create webServer for config
+  WiFiServer server(80);
+  String header;
+
+  const char* PARAM_INPUT_1 = "input1";
   
   WiFiClient espClient;
   PubSubClient client(espClient);
@@ -106,6 +112,10 @@ void setup() {
 
   delay(2000);
 
+  Serial.printf("\n\Webserver Setup -- \n"  ); 
+  //start wifi server
+  server.begin();
+  
   Serial.printf("\n\MQTT Setup -- \n"  ); 
 
   // Check if MQTT server has been stored in preferences store
@@ -170,8 +180,7 @@ void callback(char* topic, byte* message, unsigned int length) {
 }
 
 void reconnect() {
-  // Loop until we're reconnected
-  while (!client.connected()) {
+  // No Loop until we're reconnected, since the config server needs to run
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
     if (client.connect("ESP32Client")) {
@@ -182,11 +191,9 @@ void reconnect() {
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
     }
-  }
 }
+  
   
 void loop()
 {
@@ -195,6 +202,11 @@ void loop()
   { 
     // ANY MAIN LOOP CODE HERE
 
+
+    //NoiseFloor handling
+    //Executes in order to reduce the NoiseFloorLevel in order to 
+    //keep it as low as possible
+    
     if (NF.isExpired()){
       if (AS3935_NoiseFloor > 0) {
         AS3935_NoiseFloor--;
@@ -206,16 +218,22 @@ void loop()
         client.publish("as3935/NoiseFloorLevel", msg);
       }
     }
+
+    //Check MQTT Connection and publish initial message
     
     if (!client.connected()) {
       reconnect();
-      client.publish("as3935/connected", "true");
+      if (client.connected()) {
+        client.publish("as3935/connected", "true");
       
-      String pubString = String(AS3935_NoiseFloor);
-      pubString.toCharArray(msg,pubString.length()+1);
-      client.publish("as3935/NoiseFloorLevel", msg);
+        String pubString = String(AS3935_NoiseFloor);
+        pubString.toCharArray(msg,pubString.length()+1);
+        client.publish("as3935/NoiseFloorLevel", msg);
+      }
     }
     client.loop();
+
+    //Process as3935 task and check for lightnings
     
     if (as3935.process()) {
       uint8_t flags = as3935.getInterruptFlags();
@@ -239,6 +257,77 @@ void loop()
       Serial.println("Bus error!");
       as3935.clearBusError();
     }
+
+    //Check for config page requests via http
+    //this is the config server allowing the configuration of the MQTT server
+
+    WiFiClient webconfig = server.available();  // Listen for incoming clients
+
+    if (webconfig) {                            // If a new client connects,  
+      Serial.println("New Client.");          // print a message out in the serial port
+      String currentLine = "";                // make a String to hold incoming data from the client
+      while (webconfig.connected()) {            // loop while the client's connected
+        if (webconfig.available()) {             // if there's bytes to read from the client,
+          char c = webconfig.read();             // read a byte, then
+          Serial.write(c);                    // print it out the serial monitor
+          header += c;
+          if (c == '\n') {                    // if the byte is a newline character
+                                              // if the current line is blank, you got two newline characters in a row.
+                                              // that's the end of the client HTTP request, so send a response:
+            if (currentLine.length() == 0) {
+                                              // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
+                                              // and a content-type so the client knows what's coming, then a blank line:
+              webconfig.println("HTTP/1.1 200 OK");
+              webconfig.println("Content-type:text/html");
+              webconfig.println("Connection: close");
+              webconfig.println();
+            
+              
+                                              // Display the HTML web page
+              webconfig.println("<!DOCTYPE html><html>");
+              webconfig.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+              webconfig.println("<link rel=\"icon\" href=\"data:,\">");
+                                              // CSS to style the on/off buttons 
+                                              // Feel free to change the background-color and font-size attributes to fit your preferences
+              webconfig.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
+              webconfig.println(".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px;");
+              webconfig.println("text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}");
+              webconfig.println(".button2 {background-color: #555555;}</style></head>");
+            
+                                              // Web Page Heading
+              webconfig.println("<body><h1>AS3935 Web Server</h1>");
+              webconfig.println("<form action='get'>");
+              webconfig.println("MQTT Server: <input type='text' name='input1'>");
+              webconfig.println("<input type='submit' value='Submit'>");
+              webconfig.println("</form><br>");
+              webconfig.println("");
+              webconfig.println("");
+              webconfig.println("");
+              webconfig.println("");
+              webconfig.println("");
+              webconfig.println("");
+              webconfig.println("</body></html>");
+            
+                                              // The HTTP response ends with another blank line
+              webconfig.println();
+                                              // Break out of the while loop
+              break;
+            } else { // if you got a newline, then clear currentLine
+              currentLine = "";
+            }
+          } else if (c != '\r') {  // if you got anything else but a carriage return character,
+            currentLine += c;      // add it to the end of the currentLine
+          }
+      }
+    }
+    // Clear the header variable
+    header = "";
+    // Close the connection
+    webconfig.stop();
+    Serial.println("Client disconnected.");
+    Serial.println("");
+  }
+    
     
   }   // END Main connected loop()
   else
