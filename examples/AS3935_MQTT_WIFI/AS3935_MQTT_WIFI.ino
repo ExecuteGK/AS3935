@@ -21,7 +21,8 @@
   const  char* password;
   String PrefSSID, PrefPassword;  // used by preferences storage
 
-  const char* mqtt_server = "flowcontrol-wifi.lan";
+  String mqtt_server;
+  
   WiFiClient espClient;
   PubSubClient client(espClient);
   long lastMsg = 0;
@@ -106,7 +107,17 @@ void setup() {
   delay(2000);
 
   Serial.printf("\n\MQTT Setup -- \n"  ); 
-  client.setServer(mqtt_server, 1883);
+
+  // Check if MQTT server has been stored in preferences store
+  // This prepares for a later web config tool
+  preferences.begin("mqtt", false);
+      mqtt_server =  preferences.getString("mqtt", "flowcontrol-wifi.lan");      //NVS key mqtt
+  preferences.end();
+
+  char *cmqtt = new char[mqtt_server.length()+1];
+  strcpy(cmqtt, mqtt_server.c_str());
+  
+  client.setServer(cmqtt, 1883);
   client.setCallback(callback);
 
   Serial.printf("\n\tAS3935 Setup -- \n"  ); 
